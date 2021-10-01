@@ -1,0 +1,129 @@
+#trnl plant metabarcoding sequence processing 
+#written for QIIME2 version 2019.4 
+#manifest manual importation of sequences 
+#adapters have already been removed
+#manifest file made
+
+qiime tools import \
+  --type 'SampleData[PairedEndSequencesWithQuality]' \
+  --input-path plant-manifest.txt \
+  --output-path paired-end-demux.qza \
+  --input-format PairedEndFastqManifestPhred33V2
+
+#Remove primers 
+qiime cutadapt trim-paired \
+  --i-demultiplexed-sequences paired-end-demux.qza \
+  --p-front-f GGGCAATCCTGAGCCAA \
+  --p-front-r CCATTGAGTCTCTGCACCTATC \
+  --p-error-rate 0.2 \
+  --o-trimmed-sequences trimmed-seqs.qza \
+  --verbose
+
+#View sequence quality
+qiime demux summarize \
+  --i-data trimmed-seqs.qza \
+  --o-visualization demux.qzv
+  
+#Make Classifier 
+qiime tools import \
+  --type 'FeatureData[Sequence]' \
+  --input-path NCBI.QIIME.2019.10.23.fasta \
+  --output-path plant-otus.qza
+
+qiime tools import \
+  --type 'FeatureData[Taxonomy]' \
+  --input-format HeaderlessTSVTaxonomyFormat \
+  --input-path NCBI.QIIME.2019.10.23.Taxonomy.txt \
+  --output-path plant-taxa.qza
+
+qiime feature-classifier fit-classifier-naive-bayes \
+  --i-reference-reads plant-otus.qza \
+  --i-reference-taxonomy plant-taxa.qza \
+  --o-classifier plant-classifier.qza
+
+#Use Vsearch to join paired-end reads
+qiime vsearch join-pairs \
+--i-demultiplexed-seqs trimmed-seqs.qza \
+--p-truncqual 0 \
+--p-minlen 20 \
+--p-allowmergestagger \
+--p-minovlen 10 \
+--o-joined-sequences plant-seqs-joined.qza \
+--verbose
+
+qiime demux summarize \
+  --i-data plant-seqs-joined.qza \
+  --o-visualization plant-seqs-joined.qzv
+  
+#Quality filter joined pairs
+qiime quality-filter q-score-joined \
+  --i-demux plant-seqs-joined.qza \
+  --p-min-quality 20 \
+  --o-filtered-sequences filtered-plant-seqs.qza \
+  --o-filter-stats filtered-plant-stats.qza
+  
+  qiime metadata tabulate \
+  --m-input-file filtered-plant-stats.qza \
+  --o-visualization filtered-plant-stats.qzv
+  
+
+#Dereplicate sequences for clustering
+qiime vsearch dereplicate-sequences \
+  --i-sequences filtered-plant-seqs.qza \
+  --o-dereplicated-table derep-table.qza \
+  --o-dereplicated-sequences rep-seqs.qza
+  
+#De Novo Clustering of sequences at 100% identity  
+  qiime vsearch cluster-features-de-novo \
+  --p-threads 0 \
+  --i-table derep-table.qza \
+  --i-sequences rep-seqs.qza \
+  --p-perc-identity 1 \
+  --o-clustered-table plant-table-100.qza \
+  --o-clustered-sequences plant-seqs-100.qza \
+  --verbose
+
+#remove chimeras 
+qiime vsearch uchime-denovo \
+  --i-table plant-table-100.qza \
+  --i-sequences plant-seqs-100.qza \
+  --output-dir uchime-dn-out
+
+qiime feature-table filter-features \
+  --i-table plant-table-100.qza \
+  --m-metadata-file uchime-dn-out/nonchimeras.qza \
+  --o-filtered-table table-nonchimeric-wo-borderline.qza
+  
+qiime feature-table filter-seqs \
+  --i-data plant-seqs-100.qza \
+  --m-metadata-file uchime-dn-out/nonchimeras.qza \
+  --o-filtered-data final-rep-seqs.qza
+  
+  
+#Frequency Filtering
+qiime feature-table filter-features \
+  --i-table table-nonchimeric-wo-borderline.qza \
+  --p-min-frequency 10 \
+  --o-filtered-table feature-frequency-filtered-table.qza
+
+qiime feature-table filter-features \
+  --i-table feature-frequency-filtered-table.qza \
+  --p-min-samples 2 \
+  --o-filtered-table final-plant-table.qza
+  
+  #additional filtering was carried out in microsoft excel
+  #see manuscript for description
+
+#Classify Final rep seqs and table against plant classifier
+qiime feature-classifier classify-sklearn \
+  --i-classifier plant-classifier.qza \
+  --i-reads final-rep-seqs.qza \
+  --o-classification taxonomy.qza
+  
+#visualize as barplot
+qiime taxa barplot \
+  --i-table final-plant-table.qza \
+  --i-taxonomy taxonomy.qza \
+  --m-metadata-file metadata.txt \
+  --o-visualization taxa-bar-plots.qzv
+  
