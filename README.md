@@ -13,4 +13,6 @@ R_trnL_processing.R: Initial processing of plant trnL g,h  amplicon sequences, i
 
 Database.2021.09.29.fasta: resulting FASTA reference database for assignment with BLAST+. 
 
+Database.2022.03.17.fasta: resulting FASTA reference database for assignment with BLAST+ with additional cactus and Bromeliaceae sequences. 
+
 NCBI.QIIME.2019.10.23.Taxonomy.txt: QIIME2 compatible trnL g,h reference database
